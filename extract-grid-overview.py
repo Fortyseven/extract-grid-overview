@@ -45,6 +45,9 @@ def main():
     parser.add_argument('-r', '--rows', default=DEFAULT_ROWS,  type=int,
                         help=f"How many rows of frames (default {DEFAULT_ROWS})")
 
+    parser.add_argument('-nl', '--no-labels', action='store_true',
+                        help="Disable rendering of frame labels")
+
     args = parser.parse_args()
 
     doIt()
@@ -98,7 +101,10 @@ def doIt():
                 label_text = f"Frame {frame_index} @ {round(min_offs,2)} min ({round(pct_done * 100,2)}%)"
                 frame_data.append(label_text)
 
-                label_fnames.append(f"montage_labeled_{i}.png")
+                if args.no_labels:
+                    label_fnames.append(f"montage_frame_{i}.png")
+                else:
+                    label_fnames.append(f"montage_labeled_{i}.png")
                 i += 1
 
         # build the ffmpeg extraction call
@@ -112,12 +118,13 @@ def doIt():
             os._exit(-1)
 
         # add labels to all the exported frames
-        print("* Building labeled versions...")
-        for frame_id in range(args.cols*args.rows):
-            cmd_label = f"convert montage_frame_{1+frame_id}.png -background black -fill white -pointsize {LABEL_FONTSIZE} label:\"{frame_data[frame_id]}\" -gravity center -append montage_labeled_{1+frame_id}.png"
-            # print(frame_data[frame_id])
-            if os.system(cmd_label):
-                os._exit(-1)
+        if not args.no_labels:
+            print("* Building labeled versions...")
+            for frame_id in range(args.cols * args.rows):
+                cmd_label = f"convert montage_frame_{1+frame_id}.png -background black -fill white -pointsize {LABEL_FONTSIZE} label:\"{frame_data[frame_id]}\" -gravity center -append montage_labeled_{1+frame_id}.png"
+                # print(frame_data[frame_id])
+                if os.system(cmd_label):
+                    os._exit(-1)
 
         print(f"* Building montage to `{args.output_file[0]}`...")
 
@@ -140,9 +147,10 @@ def doIt():
             if exists(f):
                 os.remove(f)
 
-            f = f"montage_labeled_{1+i}.png"
-            if exists(f):
-                os.remove(f)
+            if not args.no_labels:
+                f = f"montage_labeled_{1+i}.png"
+                if exists(f):
+                    os.remove(f)
 
 
 if __name__ == "__main__":
