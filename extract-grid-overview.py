@@ -52,12 +52,15 @@ def main():
 
 def doIt():
     try:
+        source_video_filename = os.path.abspath(args.input_file[0])
+        source_video_filename_quoted = f"\"{source_video_filename}\""
+
         # Query ffprobe for the frame count
-        h = os.popen(CMD_FFPROBE_FRAME_COUNT + args.input_file[0])
+        h = os.popen(CMD_FFPROBE_FRAME_COUNT + source_video_filename_quoted)
         vid_frames_total = int(h.read().strip())
 
         # Query ffprobe for the framerate
-        h2 = os.popen(CMD_FFPROBE_FRAMERATE_COUNT + args.input_file[0])
+        h2 = os.popen(CMD_FFPROBE_FRAMERATE_COUNT + source_video_filename_quoted)
         vid_fps = round(eval(h2.read().strip()), 3)
 
         # Get an estimate of how long the video is, in minutes
@@ -100,7 +103,7 @@ def doIt():
 
         # build the ffmpeg extraction call
         vfsel = f"-vf \"select='{'+'.join(select_elements)}', scale={EXTRACTED_FRAME_WIDTH}\:-1, {FFMPEG_SHARP}\""
-        cmd_extract = f"ffmpeg -hide_banner -loglevel error -i {args.input_file[0]} {vfsel} "
+        cmd_extract = f"ffmpeg -hide_banner -loglevel error -i {source_video_filename_quoted} {vfsel} "
         cmd_extract += f" -vsync 0 montage_frame_%d.png"
 
         print("* Extracting frames (this will take some time depending on size of grid)...")
