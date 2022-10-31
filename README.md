@@ -6,6 +6,12 @@ _WARNING_: This is an extremely kludgy tool that makes a real mess but tries to 
 
 There are ABSOLUTELY better ways to do this, but it works "good enough" for my purposes. (You know how that goes.) I will likely circle back at some point and make further improvements. 🤞
 
+## Options
+Usage: `extract-grid-overview.py [options] input-video.mkv output-montage.png`
+
+- `--cols` and `--rows` let you specify the dimensions of the output grid
+- `--no-labels` removes the frame information labels
+
 ## Requirements
 
 - `ffmpeg` (including `ffprobe`)
