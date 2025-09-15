@@ -154,7 +154,7 @@ def doIt():
 
         cmd_montage = f"montage -density {EXTRACTED_FRAME_WIDTH} -tile {args.cols}x{args.rows} -geometry +0+0 -border 0 "
         cmd_montage += " ".join(label_fnames)
-        cmd_montage += f" {args.output_file[0]}"
+        cmd_montage += f' "{args.output_file[0]}"'
 
         if os.system(cmd_montage):
             os._exit(-1)
