@@ -76,11 +76,11 @@ def doIt():
 
         # Query ffprobe for the frame count
         h = os.popen(CMD_FFPROBE_FRAME_COUNT + source_video_filename_quoted)
-        vid_frames_total = int(h.read().strip())
+        vid_frames_total = int(h.read().strip().strip(","))
 
         # Query ffprobe for the framerate
         h2 = os.popen(CMD_FFPROBE_FRAMERATE_COUNT + source_video_filename_quoted)
-        vid_fps = round(eval(h2.read().strip()), 3)
+        vid_fps = round(eval(h2.read().strip().strip(",")), 3)
 
         # Get an estimate of how long the video is, in minutes
         vid_minutes = round((vid_frames_total / vid_fps) / 60, 3)
