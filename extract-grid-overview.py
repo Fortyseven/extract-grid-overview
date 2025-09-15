@@ -7,6 +7,7 @@ contents.
 
 import argparse
 import os
+import tempfile
 from os.path import exists
 
 CMD_FFPROBE_FRAME_COUNT = "ffprobe -v error -select_streams v:0 -count_packets -show_entries stream=nb_read_packets -of csv=p=0 "
@@ -71,93 +72,99 @@ def main():
 
 def doIt():
     try:
-        source_video_filename = os.path.abspath(args.input_file[0])
-        source_video_filename_quoted = f'"{source_video_filename}"'
+        # Create a temporary directory for intermediate files
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source_video_filename = os.path.abspath(args.input_file[0])
+            source_video_filename_quoted = f'"{source_video_filename}"'
 
-        # Query ffprobe for the frame count
-        h = os.popen(CMD_FFPROBE_FRAME_COUNT + source_video_filename_quoted)
-        vid_frames_total = int(h.read().strip().strip(","))
+            # Query ffprobe for the frame count
+            h = os.popen(CMD_FFPROBE_FRAME_COUNT + source_video_filename_quoted)
+            vid_frames_total = int(h.read().strip().strip(","))
 
-        # Query ffprobe for the framerate
-        h2 = os.popen(CMD_FFPROBE_FRAMERATE_COUNT + source_video_filename_quoted)
-        vid_fps = round(eval(h2.read().strip().strip(",")), 3)
+            # Query ffprobe for the framerate
+            h2 = os.popen(CMD_FFPROBE_FRAMERATE_COUNT + source_video_filename_quoted)
+            vid_fps = round(eval(h2.read().strip().strip(",")), 3)
 
-        # Get an estimate of how long the video is, in minutes
-        vid_minutes = round((vid_frames_total / vid_fps) / 60, 3)
-        grid_total_frames = args.cols * args.rows
+            # Get an estimate of how long the video is, in minutes
+            vid_minutes = round((vid_frames_total / vid_fps) / 60, 3)
+            grid_total_frames = args.cols * args.rows
 
-        print(
-            f"* There are {vid_frames_total} frames at {vid_fps}fps for ~{vid_minutes} mins."
-        )
-
-        print(
-            f"* Grid of size {args.cols}x{args.rows} will have {grid_total_frames} frames."
-        )
-
-        frame_index_roster = []
-        select_elements = []
-        frame_data = []
-        label_fnames = []
-        extracted_frame_ids = []  # Track which frames are actually extracted
-
-        # gather a list of candidate frame numbers to extract
-        for grid_frame_index in range(args.cols * args.rows):
-            frame_index = (
-                round(vid_frames_total / grid_total_frames) * grid_frame_index
-                + INTERFRAME_OFFSET
+            print(
+                f"* There are {vid_frames_total} frames at {vid_fps}fps for ~{vid_minutes} mins."
             )
-            if frame_index < vid_frames_total:
-                frame_index_roster.append(frame_index)
-                extracted_frame_ids.append(grid_frame_index)  # Only valid indices
 
-        # builds list of frame index specifiers to pass to ffmpeg, also sets up later vars
-        i = 1
-        for grid_frame_index in extracted_frame_ids:
-            frame_index = frame_index_roster[grid_frame_index]
-            top = "eq(n\\,"
-            bot = top + f"{frame_index})"
-            select_elements.append(bot)
+            print(
+                f"* Grid of size {args.cols}x{args.rows} will have {grid_total_frames} frames."
+            )
 
-            pct_done = frame_index / vid_frames_total
-            min_offs = vid_minutes * pct_done
+            frame_index_roster = []
+            select_elements = []
+            frame_data = []
+            label_fnames = []
+            extracted_frame_ids = []  # Track which frames are actually extracted
 
-            label_text = f"Frame {frame_index} @ {round(min_offs,2)} min ({round(pct_done * 100,2)}%)"
-            frame_data.append(label_text)
+            # gather a list of candidate frame numbers to extract
+            for grid_frame_index in range(args.cols * args.rows):
+                frame_index = (
+                    round(vid_frames_total / grid_total_frames) * grid_frame_index
+                    + INTERFRAME_OFFSET
+                )
+                if frame_index < vid_frames_total:
+                    frame_index_roster.append(frame_index)
+                    extracted_frame_ids.append(grid_frame_index)  # Only valid indices
 
-            if args.no_labels:
-                label_fnames.append(f"montage_frame_{i}.png")
-            else:
-                label_fnames.append(f"montage_labeled_{i}.png")
-            i += 1
+            # builds list of frame index specifiers to pass to ffmpeg, also sets up later vars
+            i = 1
+            for grid_frame_index in extracted_frame_ids:
+                frame_index = frame_index_roster[grid_frame_index]
+                top = "eq(n\\,"
+                bot = top + f"{frame_index})"
+                select_elements.append(bot)
 
-        # build the ffmpeg extraction call
-        vfsel = f"-vf \"select='{'+'.join(select_elements)}', scale={EXTRACTED_FRAME_WIDTH}\:-1, {FFMPEG_SHARP}\""
-        cmd_extract = f"ffmpeg -hide_banner -loglevel error -i {source_video_filename_quoted} {vfsel} "
-        cmd_extract += f" -vsync 0 montage_frame_%d.png"
+                pct_done = frame_index / vid_frames_total
+                min_offs = vid_minutes * pct_done
 
-        print(
-            "* Extracting frames (this will take some time depending on size of grid)..."
-        )
+                label_text = f"Frame {frame_index} @ {round(min_offs,2)} min ({round(pct_done * 100,2)}%)"
+                frame_data.append(label_text)
 
-        if os.system(cmd_extract):
-            os._exit(-1)
+                if args.no_labels:
+                    label_fnames.append(
+                        os.path.join(temp_dir, f"montage_frame_{i}.png")
+                    )
+                else:
+                    label_fnames.append(
+                        os.path.join(temp_dir, f"montage_labeled_{i}.png")
+                    )
+                i += 1
 
-        # add labels to all the exported frames
-        if not args.no_labels:
-            print("* Building labeled versions...")
-            for frame_id in range(len(extracted_frame_ids)):
-                cmd_label = f'convert montage_frame_{1+frame_id}.png -background black -fill white -pointsize {LABEL_FONTSIZE} label:"{frame_data[frame_id]}" -gravity center -append montage_labeled_{1+frame_id}.png'
-                if os.system(cmd_label):
-                    os._exit(-1)
+            # build the ffmpeg extraction call
+            vfsel = f"-vf \"select='{'+'.join(select_elements)}', scale={EXTRACTED_FRAME_WIDTH}\:-1, {FFMPEG_SHARP}\""
+            cmd_extract = f"ffmpeg -hide_banner -loglevel error -i {source_video_filename_quoted} {vfsel} "
+            cmd_extract += f" -vsync 0 {os.path.join(temp_dir, 'montage_frame_%d.png')}"
 
-        print(f"* Building montage to `{args.output_file[0]}`...")
+            print(
+                "* Extracting frames (this will take some time depending on size of grid)..."
+            )
 
-        cmd_montage = f"montage -density {EXTRACTED_FRAME_WIDTH} -tile {args.cols}x{args.rows} -geometry +0+0 -border 0 "
-        cmd_montage += " ".join(label_fnames)
-        cmd_montage += f' "{args.output_file[0]}"'
+            if os.system(cmd_extract):
+                os._exit(-1)
 
-        if os.system(cmd_montage):
-            os._exit(-1)
+            # add labels to all the exported frames
+            if not args.no_labels:
+                print("* Building labeled versions...")
+                for frame_id in range(len(extracted_frame_ids)):
+                    cmd_label = f'convert {os.path.join(temp_dir, f"montage_frame_{1+frame_id}.png")} -background black -fill white -pointsize {LABEL_FONTSIZE} label:"{frame_data[frame_id]}" -gravity center -append {os.path.join(temp_dir, f"montage_labeled_{1+frame_id}.png")}'
+                    if os.system(cmd_label):
+                        os._exit(-1)
+
+            print(f"* Building montage to `{args.output_file[0]}`...")
+
+            cmd_montage = f"montage -density {EXTRACTED_FRAME_WIDTH} -tile {args.cols}x{args.rows} -geometry +0+0 -border 0 "
+            cmd_montage += " ".join(label_fnames)
+            cmd_montage += f' "{args.output_file[0]}"'
+
+            if os.system(cmd_montage):
+                os._exit(-1)
 
     except Exception as e:
         print("Some horrible thing happened: ")
