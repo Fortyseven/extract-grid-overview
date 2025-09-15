@@ -8,6 +8,7 @@ contents.
 import argparse
 import os
 import tempfile
+import shutil  # Add this import for copying files
 from os.path import exists
 
 CMD_FFPROBE_FRAME_COUNT = "ffprobe -v error -select_streams v:0 -count_packets -show_entries stream=nb_read_packets -of csv=p=0 "
@@ -63,6 +64,12 @@ def main():
         "--no-labels",
         action="store_true",
         help="Disable rendering of frame labels",
+    )
+
+    parser.add_argument(
+        "--keep-frames",
+        type=str,
+        help="Directory to save extracted frames. If not specified, frames are deleted after montage creation.",
     )
 
     args = parser.parse_args()
@@ -128,32 +135,54 @@ def doIt():
                 frame_data.append(label_text)
 
                 if args.no_labels:
-                    label_fnames.append(
-                        os.path.join(temp_dir, f"montage_frame_{i}.png")
-                    )
+                    label_fnames.append(os.path.join(temp_dir, f"frame_{i}.png"))
                 else:
-                    label_fnames.append(
-                        os.path.join(temp_dir, f"montage_labeled_{i}.png")
-                    )
+                    label_fnames.append(os.path.join(temp_dir, f"labeled_{i}.png"))
                 i += 1
 
-            # build the ffmpeg extraction call
-            vfsel = f"-vf \"select='{'+'.join(select_elements)}', scale={EXTRACTED_FRAME_WIDTH}\:-1, {FFMPEG_SHARP}\""
-            cmd_extract = f"ffmpeg -hide_banner -loglevel error -i {source_video_filename_quoted} {vfsel} "
-            cmd_extract += f" -vsync 0 {os.path.join(temp_dir, 'montage_frame_%d.png')}"
+            # Determine the directory for saving frames
+            frame_save_dir = args.keep_frames if args.keep_frames else temp_dir
 
-            print(
-                "* Extracting frames (this will take some time depending on size of grid)..."
-            )
+            # Ensure the directory exists if --keep-frames is specified
+            if args.keep_frames and not os.path.exists(frame_save_dir):
+                os.makedirs(frame_save_dir)
 
-            if os.system(cmd_extract):
+            # Build the ffmpeg extraction call for original-sized frames
+            cmd_extract_original = f"ffmpeg -hide_banner -loglevel error -i {source_video_filename_quoted} "
+            cmd_extract_original += f" -vf \"select='{'+'.join(select_elements)}'\" -vsync 0 {os.path.join(temp_dir, 'original_frame_%d.png')}"
+
+            print("* Extracting original-sized frames...")
+            if os.system(cmd_extract_original):
                 os._exit(-1)
 
-            # add labels to all the exported frames
+            # Copy original-sized frames to the --keep-frames directory if specified
+            if args.keep_frames:
+                print(f"* Copying original-sized frames to `{args.keep_frames}`...")
+                if not os.path.exists(args.keep_frames):
+                    os.makedirs(args.keep_frames)
+                for frame_id in range(len(extracted_frame_ids)):
+                    src_original = os.path.join(
+                        temp_dir, f"original_frame_{1+frame_id}.png"
+                    )
+                    dest_original = os.path.join(
+                        args.keep_frames, f"original_frame_{1+frame_id}.png"
+                    )
+                    shutil.copy(src_original, dest_original)
+
+            # Build the ffmpeg extraction call for resized frames
+            vfsel = f"-vf \"select='{'+'.join(select_elements)}', scale={EXTRACTED_FRAME_WIDTH}\:-1, {FFMPEG_SHARP}\""
+            cmd_extract_resized = f"ffmpeg -hide_banner -loglevel error -i {source_video_filename_quoted} {vfsel} "
+            cmd_extract_resized += f" -vsync 0 {os.path.join(temp_dir, 'frame_%d.png')}"
+
+            print("* Extracting resized frames...")
+            if os.system(cmd_extract_resized):
+                os._exit(-1)
+
+            # Add labels to all the resized frames
             if not args.no_labels:
                 print("* Building labeled versions...")
                 for frame_id in range(len(extracted_frame_ids)):
-                    cmd_label = f'convert {os.path.join(temp_dir, f"montage_frame_{1+frame_id}.png")} -background black -fill white -pointsize {LABEL_FONTSIZE} label:"{frame_data[frame_id]}" -gravity center -append {os.path.join(temp_dir, f"montage_labeled_{1+frame_id}.png")}'
+                    cmd_label = f'convert {os.path.join(temp_dir, f"frame_{1+frame_id}.png")} -background black -fill white -pointsize {LABEL_FONTSIZE} label:"{frame_data[frame_id]}" -gravity center -append {os.path.join(temp_dir, f"labeled_{1+frame_id}.png")}'
                     if os.system(cmd_label):
                         os._exit(-1)
 
@@ -171,15 +200,19 @@ def doIt():
         print(e)
 
     finally:
-        # try to delete all our temporary files...
+        # Remove temporary files
         print("* Removing temporary files...")
         for frame_id in range(len(extracted_frame_ids)):
-            f = f"montage_frame_{1+frame_id}.png"
+            f = os.path.join(temp_dir, f"frame_{1+frame_id}.png")
+            if exists(f):
+                os.remove(f)
+
+            f = os.path.join(temp_dir, f"original_frame_{1+frame_id}.png")
             if exists(f):
                 os.remove(f)
 
             if not args.no_labels:
-                f = f"montage_labeled_{1+frame_id}.png"
+                f = os.path.join(temp_dir, f"labeled_{1+frame_id}.png")
                 if exists(f):
                     os.remove(f)
 
